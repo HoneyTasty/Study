@@ -1,0 +1,21 @@
+While 문
+try와 except를 같이 쓰면 
+while True:
+    try:
+        a,b =map(int,input().split())
+        print(a+b)
+    except:
+        break
+이와 같이 try 내에 상황이외에 오류가 생겼을때 빠져나올수있다.
+n=int(input())
+cnt=0
+a = n
+while True:
+    sum_num=(a//10)+(a%10)
+    new_num=((a%10)*10)+(sum_num%10)
+    cnt+=1
+    if new_num==n:
+        print(cnt)
+        break
+    a=new_num
+이렇게 나열하지말고 함수의 형태로 바꾸어서 while문에 넣도록하자.(내일 숙제)

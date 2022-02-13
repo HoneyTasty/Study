@@ -34,3 +34,23 @@
 #         break
 #     else :
 #         print(a+b)
+# while True:
+#     try:
+#         a,b =map(int,input().split())
+#         print(a+b)
+#     except:
+#         break
+# # ==========================================
+# 26부터 시작한다. 2+6 = 8이다. 새로운 수는 68이다.
+# 위의 예는 4번만에 원래 수로 돌아올 수 있다. 따라서 26의 사이클의 길이는 4이다. 사이클이 도는 프로그램을 작성해라
+# n=int(input())
+# cnt=0
+# a = n
+# while True:
+#     sum_num=(a//10)+(a%10)
+#     new_num=((a%10)*10)+(sum_num%10)
+#     cnt+=1
+#     if new_num==n:
+#         print(cnt)
+#         break
+#     a=new_num
