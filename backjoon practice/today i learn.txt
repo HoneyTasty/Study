@@ -18,4 +18,4 @@ while True:
         print(cnt)
         break
     a=new_num
-이렇게 나열하지말고 함수의 형태로 바꾸어서 while문에 넣도록하자.(내일 숙제)
+이렇게 나열하지말고 함수의 형태로 바꾸어서 while문에 넣도록하자.(다음에)
