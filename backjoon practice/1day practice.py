@@ -54,3 +54,21 @@
 #         print(cnt)
 #         break
 #     a=new_num
+# ============================================
+h,m = map(int,input().split())
+c = int(input())
+
+a = c//60
+b = c%60
+
+h+=a
+m+=b
+
+if m>=60:
+    m-=60
+    h+=1
+
+if h>23:
+    h-=24
+    
+print(h,m)
