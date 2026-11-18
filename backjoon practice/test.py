@@ -226,3 +226,610 @@ preds = inference(model, test_loader, device)
 submit = pd.read_csv('./sample_submission.csv')
 submit['rock_type'] = preds
 submit.to_csv('./baseline_submit.csv', index=False)
+
+
+"" 개선 버전""
+
+# import os
+# import random
+# import glob
+# import cv2
+# import numpy as np
+# import pandas as pd
+# import timm
+# import torch
+# import torch.nn as nn
+# import albumentations as A
+
+# from albumentations.pytorch import ToTensorV2
+# from albumentations.core.transforms_interface import ImageOnlyTransform
+
+# from torch.utils.data import Dataset, DataLoader
+# from sklearn.model_selection import train_test_split
+# from sklearn.preprocessing import LabelEncoder
+# from sklearn.metrics import f1_score
+# from tqdm.auto import tqdm
+
+# import warnings
+# warnings.filterwarnings('ignore')
+
+
+# # ==============================
+# # 1. Configuration
+# # ==============================
+
+# CFG = {
+#     'IMG_SIZE': 299,
+#     'EPOCHS': 15,
+#     'BATCH_SIZE': 32,
+#     'LEARNING_RATE': 3e-4,
+#     'WEIGHT_DECAY': 1e-4,
+#     'SEED': 41,
+#     'NUM_WORKERS': 4,
+#     'PATIENCE': 5,
+#     'NUM_CLASSES': 7
+# }
+
+# device = torch.device(
+#     'cuda' if torch.cuda.is_available() else 'cpu'
+# )
+
+# print("Device:", device)
+
+
+# # ==============================
+# # 2. Seed
+# # ==============================
+
+# def seed_everything(seed):
+#     random.seed(seed)
+#     os.environ['PYTHONHASHSEED'] = str(seed)
+#     np.random.seed(seed)
+
+#     torch.manual_seed(seed)
+
+#     if torch.cuda.is_available():
+#         torch.cuda.manual_seed_all(seed)
+
+#     torch.backends.cudnn.benchmark = True
+
+#     if hasattr(torch, 'set_float32_matmul_precision'):
+#         torch.set_float32_matmul_precision('high')
+
+
+# seed_everything(CFG['SEED'])
+
+
+# # ==============================
+# # 3. Data Load
+# # ==============================
+
+# all_img_list = glob.glob('./train/*/*')
+
+# df = pd.DataFrame({
+#     'img_path': all_img_list
+# })
+
+# df['rock_type'] = df['img_path'].apply(
+#     lambda x: x.replace('\\', '/').split('/')[-2]
+# )
+
+# train, val = train_test_split(
+#     df,
+#     test_size=0.3,
+#     stratify=df['rock_type'],
+#     random_state=CFG['SEED']
+# )
+
+# le = LabelEncoder()
+
+# train['rock_type'] = le.fit_transform(train['rock_type'])
+# val['rock_type'] = le.transform(val['rock_type'])
+
+# CFG['NUM_CLASSES'] = len(le.classes_)
+
+# print("Classes:", le.classes_)
+# print("Train:", len(train))
+# print("Validation:", len(val))
+
+
+# # ==============================
+# # 4. Image Preprocessing
+# # ==============================
+
+# class PadSquare(ImageOnlyTransform):
+
+#     def __init__(self, value=0, p=1.0):
+#         super().__init__(p=p)
+#         self.value = value
+
+#     def apply(self, image, **params):
+
+#         h, w = image.shape[:2]
+
+#         max_dim = max(h, w)
+
+#         pad_h = max_dim - h
+#         pad_w = max_dim - w
+
+#         top = pad_h // 2
+#         bottom = pad_h - top
+
+#         left = pad_w // 2
+#         right = pad_w - left
+
+#         return cv2.copyMakeBorder(
+#             image,
+#             top,
+#             bottom,
+#             left,
+#             right,
+#             cv2.BORDER_CONSTANT,
+#             value=self.value
+#         )
+
+#     def get_transform_init_args_names(self):
+#         return ("value",)
+
+
+# train_transform = A.Compose([
+
+#     PadSquare(value=(0, 0, 0)),
+
+#     A.Resize(
+#         CFG['IMG_SIZE'],
+#         CFG['IMG_SIZE']
+#     ),
+
+#     # 학습 데이터 증강
+#     A.HorizontalFlip(p=0.5),
+#     A.VerticalFlip(p=0.2),
+#     A.RandomRotate90(p=0.5),
+
+#     A.Normalize(
+#         mean=(0.5, 0.5, 0.5),
+#         std=(0.5, 0.5, 0.5)
+#     ),
+
+#     ToTensorV2()
+
+# ])
+
+
+# test_transform = A.Compose([
+
+#     PadSquare(value=(0, 0, 0)),
+
+#     A.Resize(
+#         CFG['IMG_SIZE'],
+#         CFG['IMG_SIZE']
+#     ),
+
+#     A.Normalize(
+#         mean=(0.5, 0.5, 0.5),
+#         std=(0.5, 0.5, 0.5)
+#     ),
+
+#     ToTensorV2()
+
+# ])
+
+
+# # ==============================
+# # 5. Dataset
+# # ==============================
+
+# class CustomDataset(Dataset):
+
+#     def __init__(
+#         self,
+#         img_path_list,
+#         label_list=None,
+#         transforms=None
+#     ):
+
+#         self.img_path_list = img_path_list
+#         self.label_list = label_list
+#         self.transforms = transforms
+
+#     def __getitem__(self, index):
+
+#         img_path = self.img_path_list[index]
+
+#         image = cv2.imread(img_path)
+
+#         if image is None:
+#             raise ValueError(f"Image load failed: {img_path}")
+
+#         image = cv2.cvtColor(
+#             image,
+#             cv2.COLOR_BGR2RGB
+#         )
+
+#         if self.transforms is not None:
+
+#             image = self.transforms(
+#                 image=image
+#             )['image']
+
+#         if self.label_list is not None:
+
+#             label = self.label_list[index]
+
+#             return image, torch.tensor(
+#                 label,
+#                 dtype=torch.long
+#             )
+
+#         return image
+
+#     def __len__(self):
+#         return len(self.img_path_list)
+
+
+# # ==============================
+# # 6. DataLoader
+# # ==============================
+
+# train_dataset = CustomDataset(
+#     train['img_path'].values,
+#     train['rock_type'].values,
+#     train_transform
+# )
+
+# val_dataset = CustomDataset(
+#     val['img_path'].values,
+#     val['rock_type'].values,
+#     test_transform
+# )
+
+
+# loader_args = {
+#     'num_workers': CFG['NUM_WORKERS'],
+#     'pin_memory': device.type == 'cuda'
+# }
+
+# if CFG['NUM_WORKERS'] > 0:
+#     loader_args['persistent_workers'] = True
+#     loader_args['prefetch_factor'] = 2
+
+
+# train_loader = DataLoader(
+#     train_dataset,
+#     batch_size=CFG['BATCH_SIZE'],
+#     shuffle=True,
+#     drop_last=False,
+#     **loader_args
+# )
+
+# val_loader = DataLoader(
+#     val_dataset,
+#     batch_size=CFG['BATCH_SIZE'],
+#     shuffle=False,
+#     **loader_args
+# )
+
+
+# # ==============================
+# # 7. Model
+# # ==============================
+
+# model = timm.create_model(
+#     'inception_resnet_v2',
+#     pretrained=True,
+#     num_classes=CFG['NUM_CLASSES']
+# )
+
+# model = model.to(device)
+
+# criterion = nn.CrossEntropyLoss()
+
+# optimizer = torch.optim.AdamW(
+#     model.parameters(),
+#     lr=CFG['LEARNING_RATE'],
+#     weight_decay=CFG['WEIGHT_DECAY']
+# )
+
+# scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+#     optimizer,
+#     T_max=CFG['EPOCHS'],
+#     eta_min=1e-6
+# )
+
+# # Mixed Precision
+# scaler = torch.amp.GradScaler(
+#     'cuda',
+#     enabled=(device.type == 'cuda')
+# )
+
+
+# # ==============================
+# # 8. Validation
+# # ==============================
+
+# def validation(model, criterion, val_loader):
+
+#     model.eval()
+
+#     val_loss = []
+#     preds = []
+#     true_labels = []
+
+#     with torch.no_grad():
+
+#         for imgs, labels in tqdm(
+#             val_loader,
+#             desc="Validation",
+#             leave=False
+#         ):
+
+#             imgs = imgs.to(
+#                 device,
+#                 non_blocking=True
+#             )
+
+#             labels = labels.to(
+#                 device,
+#                 non_blocking=True
+#             )
+
+#             with torch.autocast(
+#                 device_type=device.type,
+#                 dtype=torch.float16,
+#                 enabled=(device.type == 'cuda')
+#             ):
+
+#                 output = model(imgs)
+
+#                 loss = criterion(
+#                     output,
+#                     labels
+#                 )
+
+#             val_loss.append(loss.item())
+
+#             preds.extend(
+#                 output.argmax(1).cpu().numpy()
+#             )
+
+#             true_labels.extend(
+#                 labels.cpu().numpy()
+#             )
+
+#     val_loss = np.mean(val_loss)
+
+#     val_score = f1_score(
+#         true_labels,
+#         preds,
+#         average='macro'
+#     )
+
+#     return val_loss, val_score
+
+
+# # ==============================
+# # 9. Train
+# # ==============================
+
+# def train(model, optimizer, train_loader, val_loader, scheduler):
+
+#     best_score = 0.0
+#     patience_count = 0
+
+#     save_path = 'best_model.pth'
+
+#     for epoch in range(CFG['EPOCHS']):
+
+#         model.train()
+
+#         train_loss = []
+
+#         pbar = tqdm(
+#             train_loader,
+#             desc=f"Epoch {epoch + 1}/{CFG['EPOCHS']}"
+#         )
+
+#         for imgs, labels in pbar:
+
+#             imgs = imgs.to(
+#                 device,
+#                 non_blocking=True
+#             )
+
+#             labels = labels.to(
+#                 device,
+#                 non_blocking=True
+#             )
+
+#             optimizer.zero_grad(set_to_none=True)
+
+#             with torch.autocast(
+#                 device_type=device.type,
+#                 dtype=torch.float16,
+#                 enabled=(device.type == 'cuda')
+#             ):
+
+#                 output = model(imgs)
+
+#                 loss = criterion(
+#                     output,
+#                     labels
+#                 )
+
+#             scaler.scale(loss).backward()
+
+#             scaler.step(optimizer)
+
+#             scaler.update()
+
+#             train_loss.append(loss.item())
+
+#             pbar.set_postfix(
+#                 loss=f'{loss.item():.4f}'
+#             )
+
+#         # Validation
+#         val_loss, val_score = validation(
+#             model,
+#             criterion,
+#             val_loader
+#         )
+
+#         train_loss = np.mean(train_loss)
+
+#         scheduler.step()
+
+#         print(
+#             f"\nEpoch [{epoch + 1}/{CFG['EPOCHS']}] "
+#             f"Train Loss: {train_loss:.5f} "
+#             f"Val Loss: {val_loss:.5f} "
+#             f"Macro F1: {val_score:.5f}"
+#         )
+
+#         # Best Model
+#         if val_score > best_score:
+
+#             best_score = val_score
+
+#             patience_count = 0
+
+#             torch.save(
+#                 model.state_dict(),
+#                 save_path
+#             )
+
+#             print(
+#                 f"Best model saved! F1: {best_score:.5f}"
+#             )
+
+#         else:
+
+#             patience_count += 1
+
+#         # Early Stopping
+#         if patience_count >= CFG['PATIENCE']:
+
+#             print("Early Stopping!")
+#             break
+
+#     # Load Best Model
+#     model.load_state_dict(
+#         torch.load(
+#             save_path,
+#             map_location=device,
+#             weights_only=True
+#         )
+#     )
+
+#     return model
+
+
+# # ==============================
+# # 10. Start Training
+# # ==============================
+
+# model = train(
+#     model,
+#     optimizer,
+#     train_loader,
+#     val_loader,
+#     scheduler
+# )
+
+
+# # ==============================
+# # 11. Test Inference
+# # ==============================
+
+# test = pd.read_csv('./test.csv')
+
+# test_dataset = CustomDataset(
+#     test['img_path'].values,
+#     None,
+#     test_transform
+# )
+
+# test_loader = DataLoader(
+#     test_dataset,
+#     batch_size=CFG['BATCH_SIZE'],
+#     shuffle=False,
+#     num_workers=0,
+#     pin_memory=device.type == 'cuda'
+# )
+
+
+# def inference(model, test_loader):
+
+#     model.eval()
+
+#     preds = []
+
+#     with torch.no_grad():
+
+#         for imgs in tqdm(
+#             test_loader,
+#             desc="Inference"
+#         ):
+
+#             imgs = imgs.to(
+#                 device,
+#                 non_blocking=True
+#             )
+
+#             with torch.autocast(
+#                 device_type=device.type,
+#                 dtype=torch.float16,
+#                 enabled=(device.type == 'cuda')
+#             ):
+
+#                 output = model(imgs)
+
+#             preds.extend(
+#                 output.argmax(1).cpu().numpy()
+#             )
+
+#     preds = le.inverse_transform(
+#         np.array(preds)
+#     )
+
+#     return preds
+
+
+# preds = inference(
+#     model,
+#     test_loader
+# )
+
+
+# # ==============================
+# # 12. Submission
+# # ==============================
+
+# submit = pd.read_csv(
+#     './sample_submission.csv'
+# )
+
+# submit['rock_type'] = preds
+
+# submit.to_csv(
+#     './baseline_submit.csv',
+#     index=False
+# )
+
+# print("Submission Complete!")
+# print(submit.head())
+print("========== DEBUG ==========")
+
+print("Test 이미지 개수:", len(test_dataset))
+
+print("예측 개수:", len(preds))
+
+print("LabelEncoder:", le.classes_)
+
+print("예측 결과:", preds[:10])
+
+print("예측 자료형:", preds.dtype)
+
+print("Submission 컬럼:", submit.columns.tolist())
+
+print("===========================")
